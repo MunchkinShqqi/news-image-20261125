@@ -1,49 +1,79 @@
-// News-image entry for Wednesday 25 November 2026 (news-image-20261125).
-// The program writes the front-page image this repository holds to the
-// grader's output directory. It only copies a committed file, so the
-// output is byte-identical on every run. No network, no clock, no
-// randomness, no arguments.
+// World News, 25 November 2026 — make.fun entry (news-image-20261125)
 //
-// The image is a dense front page: US proposes new tariffs on 14 trading
-// partners, plus 34 more date-checked stories in 6 sections (Top Stories,
-// Americas, Europe, Middle East, Africa, Asia-Pacific) — 35 in all.
+// This entry is a single dense front-page newspaper image for
+// Wednesday, 25 November 2026. The image (entry.png, 1024x1024)
+// packs 35 date-checked news stories across six sections —
+// Top Stories, Americas, Europe, Middle East, Africa and
+// Asia-Pacific — led by the United States proposing new tariffs
+// on 14 trading partners.
 //
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for
-// /output:
-//   MAKEFUN_OUTPUT_DIR=out node main.ts
+// This script is the entrypoint. It does one small, deterministic
+// job: copy entry.png from the repo root into the output directory
+// so the entry can be scored. It makes no network requests, reads
+// no clock, uses no randomness and takes no arguments.
 
-import { copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, statSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const OUTPUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
-const REPO_DIR = dirname(fileURLToPath(import.meta.url));
-// The competition caps the image at 1 MiB; refuse a copy that exceeds it.
-const MAX_IMAGE_BYTES = 1024 * 1024;
-// PNG files start with this fixed 8-byte signature; checking it catches a
-// truncated or corrupt copy that happens to have the right size.
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+// One mebibyte — the maximum size allowed for the entry image.
+const MAX_IMAGE_BYTES: number = 1024 * 1024;
 
-mkdirSync(OUTPUT_DIR, { recursive: true });
+// The eight bytes every PNG file starts with.
+const PNG_SIGNATURE: readonly number[] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
-const source = join(REPO_DIR, "entry.png");
-const dest = join(OUTPUT_DIR, "entry.png");
+const IMAGE_NAME: string = "entry.png";
 
-const sourceSize = statSync(source).size;
-if (sourceSize > MAX_IMAGE_BYTES) {
-  throw new Error(`entry.png exceeds the 1 MiB cap: ${sourceSize} bytes`);
+// The repo root is the directory holding this script.
+const repoRoot: string = dirname(fileURLToPath(import.meta.url));
+const sourcePath: string = join(repoRoot, IMAGE_NAME);
+
+// The output directory comes from the environment, defaulting to /output.
+const outputDir: string = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+const destinationPath: string = join(outputDir, IMAGE_NAME);
+
+function fail(message: string): never {
+  throw new Error(`news-image-20261125: ${message}`);
 }
-copyFileSync(source, dest);
 
-const want = statSync(source).size;
-const got = statSync(dest).size;
-if (got !== want) {
-  throw new Error(`entry.png copy incomplete: ${got} of ${want} bytes`);
+function main(): void {
+  if (!existsSync(sourcePath)) {
+    fail(`source image not found: ${sourcePath}`);
+  }
+
+  const sourceSize: number = statSync(sourcePath).size;
+  if (sourceSize > MAX_IMAGE_BYTES) {
+    fail(
+      `${IMAGE_NAME} is ${sourceSize} bytes, which exceeds the 1 MiB limit (${MAX_IMAGE_BYTES} bytes).`,
+    );
+  }
+
+  mkdirSync(outputDir, { recursive: true });
+  copyFileSync(sourcePath, destinationPath);
+
+  // Confirm the copy is a real PNG by checking its signature bytes.
+  // A truncated copy shorter than the 8-byte signature must fail here
+  // too, rather than passing on a partial comparison.
+  const copiedHead: Buffer = readFileSync(destinationPath).subarray(0, PNG_SIGNATURE.length);
+  if (copiedHead.length !== PNG_SIGNATURE.length) {
+    fail(`copied ${IMAGE_NAME} is truncated: only ${copiedHead.length} bytes could be read.`);
+  }
+  const signatureMatches: boolean = PNG_SIGNATURE.every(
+    (expectedByte, index) => copiedHead[index] === expectedByte,
+  );
+  if (!signatureMatches) {
+    fail(`copied ${IMAGE_NAME} does not start with a valid PNG signature.`);
+  }
+
+  // Confirm the copy is complete by comparing byte sizes.
+  const copiedSize: number = statSync(destinationPath).size;
+  if (copiedSize !== sourceSize) {
+    fail(
+      `copied ${IMAGE_NAME} is ${copiedSize} bytes, expected ${sourceSize} bytes — copy incomplete.`,
+    );
+  }
+
+  console.log(`Copied ${IMAGE_NAME} (${sourceSize} bytes) to ${destinationPath}`);
 }
-// The committed entry image: 1024x1024 PNG, 161,510 bytes, sha256
-// 7b77dc3f72eb274b546e8ef97c922b80d7bb4a7164bb4e16d15abc509663a52f,
-// 35 date-checked stories from 25 November 2026 (lead: US tariffs on 14
-// trading partners). Rendered by build_image.py and verified visually.
-if (!readFileSync(dest).subarray(0, 8).equals(PNG_SIGNATURE)) {
-  throw new Error("entry.png copy is not a valid PNG (bad signature)");
-}
+
+main();
